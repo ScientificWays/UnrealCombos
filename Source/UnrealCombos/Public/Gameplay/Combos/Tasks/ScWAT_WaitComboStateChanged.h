@@ -1,0 +1,42 @@
+// Scientific Ways
+
+#pragma once
+
+#include "UnrealCombos.h"
+
+#include "ScWAT_WaitComboStateChanged.generated.h"
+
+/**
+ *
+ */
+UCLASS(meta = (DisplayName = "[ScW] AT_WaitComboStateChanged"))
+class UNREALCOMBOS_API UScWAT_WaitComboStateChanged : public UAbilityTask
+{
+	GENERATED_BODY()
+
+public:
+
+	UPROPERTY(BlueprintAssignable)
+	FGenericGameplayTaskDelegate OnComboStateChanged;
+
+	UFUNCTION(BlueprintCallable, Category = "Ability | Tasks", meta = (HidePin = "InOwningAbility", DefaultToSelf = "InOwningAbility", BlueprintInternalUseOnly = "true"))
+	static UScWAT_WaitComboStateChanged* WaitComboStateChanged(UGameplayAbility* InOwningAbility, UScWComboStateComponent* InComboStateComponent);
+	
+//~ Begin Initialize
+protected:
+	virtual void Activate() override; // UGameplayTask
+	virtual void OnDestroy(bool bInAbilityIsEnding) override; // UGameplayTask
+//~ End Initialize
+
+//~ Begin Callbacks
+protected:
+
+	UFUNCTION()
+	void OnComboStateChangedCallback();
+
+	UPROPERTY()
+	UScWComboStateComponent* ComboStateComponent = nullptr;
+
+	FScriptDelegate CallbackScriptDelegate;
+//~ End Callbacks
+};

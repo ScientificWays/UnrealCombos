@@ -1,0 +1,135 @@
+// Scientific Ways
+
+#include "Gameplay/Combos/Abilities/ScWGameplayAbility_ComboSwing.h"
+
+#include "Gameplay/Combos/ScWComboData.h"
+#include "Gameplay/Combos/ScWComboStateComponent.h"
+#include "Gameplay/Combos/Tasks/ScWAT_WaitComboMoveEvent.h"
+
+#include "Gameplay/Tasks/ScWAT_WaitDelay.h"
+#include "Gameplay/Handhelds/ScWHandheldData_Melee.h"
+
+UScWGameplayAbility_ComboSwing::UScWGameplayAbility_ComboSwing()
+{
+	
+}
+
+//~ Begin Ability
+void UScWGameplayAbility_ComboSwing::NativeActivateAbility_Committed(const FGameplayAbilitySpecHandle InHandle, const FGameplayAbilityActorInfo* InActorInfo, const FGameplayAbilityActivationInfo InActivationInfo, const FGameplayEventData* InTriggerEventData) // UGameplayAbility
+{
+	ensureCancelAbilityReturn(InActorInfo);
+
+	OwnerComboStateComponent = UScWComboStateComponent::GetComboStateComponentFromActorInfo(*InActorInfo);
+	ensureCancelAbilityReturn(OwnerComboStateComponent);
+
+	/*ensureCancelAbilityReturn(InTriggerEventData);
+	const UScWComboMoveData* TriggeredComboMoveData = Cast<UScWComboMoveData>(InTriggerEventData->OptionalObject);
+	ensureCancelAbilityReturn(TriggeredComboMoveData);
+
+	switch (OwnerComboStateComponent->GetCurrentComboState())
+	{
+		case EComboState::Reset:
+		{
+			OwnerComboStateComponent->QueueComboMove(TriggeredComboMoveData);
+			break;
+		}
+		case EComboState::ReadyForMove:
+		{
+			OwnerComboStateComponent->QueueComboMove(TriggeredComboMoveData);
+			break;
+		}
+		case EComboState::NotYetReadyForMove:
+		{
+			OwnerComboStateComponent->SetComboState(EComboState::Failed);
+			EndAbility(InHandle, InActorInfo, InActivationInfo, true, false);
+			return;
+		}
+		case EComboState::Failed:
+		{
+			EndAbility(InHandle, InActorInfo, InActivationInfo, true, false);
+			return;
+		}
+		default:
+		{
+			ensureCancelAbilityReturn(false);
+			return;
+		}
+	}*/
+	Super::NativeActivateAbility_Committed(InHandle, InActorInfo, InActivationInfo, InTriggerEventData);
+}
+
+void UScWGameplayAbility_ComboSwing::OnPostSwingComboWindowFinished()
+{
+	ensureCancelAbilityReturn(OwnerComboStateComponent);
+	OwnerComboStateComponent->SetComboState(EComboState::Reset, true);
+}
+
+bool UScWGameplayAbility_ComboSwing::CanActivateAbility(const FGameplayAbilitySpecHandle InHandle, const FGameplayAbilityActorInfo* InActorInfo, const FGameplayTagContainer* InSourceTags, const FGameplayTagContainer* InTargetTags, OUT FGameplayTagContainer* OutOptionalRelevantTags) const // UGameplayAbility
+{
+	ensureReturn(InActorInfo, false);
+
+	UScWComboStateComponent* ComboStateComponent = UScWComboStateComponent::GetComboStateComponentFromActorInfo(*InActorInfo);
+	ensureReturn(ComboStateComponent, false);
+
+	if (!ComboStateComponent->GetQueuedComboMove())
+	{
+		return false;
+	}
+	return Super::CanActivateAbility(InHandle, InActorInfo, InSourceTags, InTargetTags, OutOptionalRelevantTags);
+}
+
+void UScWGameplayAbility_ComboSwing::EndAbility(const FGameplayAbilitySpecHandle InHandle, const FGameplayAbilityActorInfo* InActorInfo, const FGameplayAbilityActivationInfo InActivationInfo, bool bInReplicateEndAbility, bool bInWasCancelled) // UGameplayAbility
+{
+	if (bInWasCancelled)
+	{
+		OwnerComboStateComponent->DenyQueuedComboMove();
+		OwnerComboStateComponent->SetComboState(EComboState::Reset, true);
+	}
+	Super::EndAbility(InHandle, InActorInfo, InActivationInfo, bInReplicateEndAbility, bInWasCancelled);
+}
+//~ End Ability
+
+//~ Begin Swing
+float UScWGameplayAbility_ComboSwing::BP_HandlePreSwing_Implementation() // UScWGameplayAbility_CommonSwing
+{
+	OwnerComboStateComponent->AcceptQueuedComboMove();
+
+	ensureCancelAbilityReturn(OwnerComboStateComponent, Super::BP_HandlePreSwing_Implementation());
+	OwnerComboStateComponent->SetComboState(EComboState::NotYetReadyForMove);
+
+	return Super::BP_HandlePreSwing_Implementation();
+}
+
+float UScWGameplayAbility_ComboSwing::BP_HandleEndSwing_Implementation()
+{
+	float OutPostSwingDelay = Super::BP_HandleEndSwing_Implementation();
+
+	BP_HandleSwingEndComboWindow();
+
+	ensureCancelAbilityReturn(OwnerMeleeData, OutPostSwingDelay);
+	return FMath::Max(OwnerMeleeData->PostSwingComboTimeWindow, OutPostSwingDelay);
+}
+
+void UScWGameplayAbility_ComboSwing::BP_HandlePostSwing_Implementation()
+{
+	ensureCancelAbilityReturn(OwnerComboStateComponent);
+	OwnerComboStateComponent->SetComboState(EComboState::Reset, true);
+
+	Super::BP_HandlePostSwing_Implementation();
+}
+
+void UScWGameplayAbility_ComboSwing::BP_HandleSwingEndComboWindow_Implementation()
+{
+	UScWAT_WaitComboMoveEvent* WaitComboMoveQueuedTask = UScWAT_WaitComboMoveEvent::WaitComboMoveQueued(this, OwnerComboStateComponent);
+	WaitComboMoveQueuedTask->OnComboMoveEvent.AddDynamic(this, &ThisClass::K2_EndAbility);
+	WaitComboMoveQueuedTask->ReadyForActivation();
+
+	ensureCancelAbilityReturn(OwnerComboStateComponent);
+	OwnerComboStateComponent->SetComboState(EComboState::ReadyForMove);
+
+	ensureCancelAbilityReturn(OwnerMeleeData);
+	UScWAT_WaitDelay* PostSwingComboWindowTask = UScWAT_WaitDelay::WaitDelayOrFinishNextTick(this, OwnerMeleeData->PostSwingComboTimeWindow);
+	PostSwingComboWindowTask->OnFinish.AddDynamic(this, &ThisClass::OnPostSwingComboWindowFinished);
+	PostSwingComboWindowTask->ReadyForActivation();
+}
+//~ End Swing
